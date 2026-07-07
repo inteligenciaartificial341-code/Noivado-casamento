@@ -608,30 +608,36 @@
       <input type="text" id="f-name" placeholder="Ex: Vinho tinto Reserva, ou Empresa Flora Decorações">
     </div>
 
+    <div class="field">
+      <label>Valor total (R$)</label>
+      <input type="text" id="f-total" inputmode="decimal" placeholder="0,00" oninput="maskCurrency(this); updateResto();">
+    </div>
+
     <div class="field-row">
       <div class="field">
-        <label>Valor (R$)</label>
-        <input type="text" id="f-value" inputmode="decimal" placeholder="0,00" oninput="maskCurrency(this)">
+        <label>Entrada paga (R$)</label>
+        <input type="text" id="f-entrada" inputmode="decimal" placeholder="0,00" oninput="maskCurrency(this); updateResto();">
       </div>
       <div class="field">
-        <label>Status</label>
-        <select id="f-status">
-          <option value="pendente">Pendente</option>
-          <option value="parcial">Parcial</option>
-          <option value="pago">Pago</option>
-        </select>
+        <label>Data da entrada</label>
+        <input type="date" id="f-data-entrada">
       </div>
     </div>
 
     <div class="field-row">
       <div class="field">
-        <label>Prazo</label>
-        <input type="date" id="f-due">
+        <label>Restante a pagar</label>
+        <input type="text" id="f-resto" readonly style="background:#EFE9DC;color:#5C1A1A;font-weight:600;">
       </div>
       <div class="field">
-        <label>Link de referência</label>
-        <input type="url" id="f-link" placeholder="https://...">
+        <label>Data do restante</label>
+        <input type="date" id="f-data-resto">
       </div>
+    </div>
+
+    <div class="field">
+      <label>Link de referência</label>
+      <input type="url" id="f-link" placeholder="https://...">
     </div>
 
     <div class="field">
@@ -764,6 +770,16 @@ function statusLabel(s){
   return "Pendente";
 }
 
+// calcula o status automaticamente a partir de total e entrada
+function calcStatus(total, entrada){
+  total = Number(total||0);
+  entrada = Number(entrada||0);
+  if(total <= 0) return "pendente";
+  if(entrada >= total) return "pago";
+  if(entrada > 0) return "parcial";
+  return "pendente";
+}
+
 function render(){
   const chapters = EVENTS[currentEvent].chapters;
   const root = document.getElementById('chaptersRoot');
@@ -773,11 +789,13 @@ function render(){
   chapters.forEach((ch, ci) => {
     let chapterTotal = 0;
     ch.items.forEach(it=>{
-      chapterTotal += Number(it.value||0);
-      totalBudget += Number(it.value||0);
-      if(it.status==='pago') totalPaid += Number(it.value||0);
-      else if(it.status==='parcial'){ totalPaid += Number(it.value||0)/2; totalPending += Number(it.value||0)/2; }
-      else totalPending += Number(it.value||0);
+      const total = Number(it.total||0);
+      const entrada = Number(it.entrada||0);
+      const resto = Math.max(0, total - entrada);
+      chapterTotal += total;
+      totalBudget += total;
+      totalPaid += Math.min(entrada, total);
+      totalPending += resto;
     });
 
     const div = document.createElement('div');
@@ -794,13 +812,25 @@ function render(){
       </div>
       <div class="chapter-body">
         <div class="items">
-          ${ch.items.map((it, ii) => `
+          ${ch.items.map((it, ii) => {
+            const total = Number(it.total||0);
+            const entrada = Number(it.entrada||0);
+            const resto = Math.max(0, total - entrada);
+            const pctEntrada = total > 0 ? Math.round((entrada/total)*100) : 0;
+            const pctResto = total > 0 ? 100 - pctEntrada : 0;
+            const status = calcStatus(total, entrada);
+            return `
             <div class="item">
               <div class="item-name">${it.name}</div>
-              <div class="item-status ${statusClass(it.status)}">${statusLabel(it.status)}</div>
+              <div class="item-status ${statusClass(status)}">${statusLabel(status)}</div>
               <div class="item-details">
-                <span>Valor: <span class="val">${fmt(it.value)}</span></span>
-                ${it.due ? `<span>Prazo: <span class="val">${it.due}</span></span>` : ''}
+                <span>Total: <span class="val">${fmt(total)}</span></span>
+                <span>Entrada: <span class="val" style="color:#3A4A40">${fmt(entrada)} (${pctEntrada}%)</span></span>
+                <span>Falta: <span class="val" style="color:#5C1A1A">${fmt(resto)} (${pctResto}%)</span></span>
+              </div>
+              <div class="item-details">
+                ${it.dataEntrada ? `<span>Pago em: <span class="val">${it.dataEntrada}</span></span>` : ''}
+                ${it.dataResto ? `<span>Restante em: <span class="val">${it.dataResto}</span></span>` : ''}
                 ${it.link ? `<a class="item-link" href="${it.link}" target="_blank" rel="noopener">Ver referência ↗</a>` : ''}
               </div>
               ${it.note ? `<div class="item-note">${it.note}</div>` : ''}
@@ -809,7 +839,7 @@ function render(){
                 <button class="icon-btn danger" onclick="deleteItem(${ci}, ${ii})">Excluir</button>
               </div>
             </div>
-          `).join('') || '<p style="color:#a39a89;font-size:13px;padding:14px 0;">Nenhum item adicionado ainda.</p>'}
+          `;}).join('') || '<p style="color:#a39a89;font-size:13px;padding:14px 0;">Nenhum item adicionado ainda.</p>'}
           <div class="add-row">
             <button class="add-btn" onclick="openModal(${ci})">+ Adicionar item</button>
           </div>
@@ -822,6 +852,14 @@ function render(){
   document.getElementById('totalBudget').textContent = fmt(totalBudget);
   document.getElementById('totalPaid').textContent = fmt(totalPaid);
   document.getElementById('totalPending').textContent = fmt(totalPending);
+}
+
+// atualiza campo "restante" no modal em tempo real
+function updateResto(){
+  const total = parseCurrency(document.getElementById('f-total').value);
+  const entrada = parseCurrency(document.getElementById('f-entrada').value);
+  const resto = Math.max(0, total - entrada);
+  document.getElementById('f-resto').value = fmt(resto);
 }
 
 updateCountdown();
@@ -847,19 +885,22 @@ function openModal(chapterIndex, itemIndex){
   if(isEditing){
     const it = chapter.items[activeItemIndex];
     document.getElementById('f-name').value = it.name || '';
-    document.getElementById('f-value').value = it.value ? it.value.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2}) : '';
-    document.getElementById('f-status').value = it.status || 'pendente';
-    document.getElementById('f-due').value = it.dueISO || '';
+    document.getElementById('f-total').value = it.total ? Number(it.total).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2}) : '';
+    document.getElementById('f-entrada').value = it.entrada ? Number(it.entrada).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2}) : '';
+    document.getElementById('f-data-entrada').value = it.dataEntradaISO || '';
+    document.getElementById('f-data-resto').value = it.dataRestoISO || '';
     document.getElementById('f-link').value = it.link || '';
     document.getElementById('f-note').value = it.note || '';
   } else {
     document.getElementById('f-name').value = '';
-    document.getElementById('f-value').value = '';
-    document.getElementById('f-status').value = 'pendente';
-    document.getElementById('f-due').value = '';
+    document.getElementById('f-total').value = '';
+    document.getElementById('f-entrada').value = '';
+    document.getElementById('f-data-entrada').value = '';
+    document.getElementById('f-data-resto').value = '';
     document.getElementById('f-link').value = '';
     document.getElementById('f-note').value = '';
   }
+  updateResto();
 
   document.getElementById('modalOverlay').classList.add('open');
   setTimeout(()=>document.getElementById('f-name').focus(), 50);
@@ -883,15 +924,17 @@ function saveItem(){
     document.getElementById('f-name').focus();
     return;
   }
-  const value = parseCurrency(document.getElementById('f-value').value);
-  const status = document.getElementById('f-status').value;
-  const dueRaw = document.getElementById('f-due').value;
-  const due = dueRaw ? new Date(dueRaw+'T00:00:00').toLocaleDateString('pt-BR') : '';
+  const total = parseCurrency(document.getElementById('f-total').value);
+  const entrada = parseCurrency(document.getElementById('f-entrada').value);
+  const dataEntradaISO = document.getElementById('f-data-entrada').value;
+  const dataRestoISO = document.getElementById('f-data-resto').value;
+  const dataEntrada = dataEntradaISO ? new Date(dataEntradaISO+'T00:00:00').toLocaleDateString('pt-BR') : '';
+  const dataResto = dataRestoISO ? new Date(dataRestoISO+'T00:00:00').toLocaleDateString('pt-BR') : '';
   const link = document.getElementById('f-link').value.trim();
   const note = document.getElementById('f-note').value.trim();
 
   const chapterIndex = activeChapterIndex;
-  const newItem = { name, value, status, due, dueISO: dueRaw, link, note };
+  const newItem = { name, total, entrada, dataEntrada, dataEntradaISO, dataResto, dataRestoISO, link, note };
 
   if(activeItemIndex !== null){
     EVENTS[currentEvent].chapters[chapterIndex].items[activeItemIndex] = newItem;
