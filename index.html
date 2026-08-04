@@ -106,6 +106,34 @@
   .ledger-cell.pending .l-value{color:var(--bordeaux);}
   .ledger-hint{text-align:center;font-size:10px;color:#a39a89;margin-top:6px;}
 
+  /* Contador de pessoas do evento */
+  .pessoas-wrap{max-width:920px;margin:14px auto 0;padding:0 16px;text-align:center;}
+  .pessoas-btn{
+    background:none;border:1px solid var(--gold-soft);color:var(--gold);
+    font-family:'Spectral SC',serif;font-size:10.5px;letter-spacing:0.1em;
+    text-transform:uppercase;padding:8px 18px;border-radius:20px;cursor:pointer;
+  }
+  .pessoas-btn .pb-chev{
+    display:inline-block;width:7px;height:7px;margin-left:8px;
+    border-right:1.5px solid var(--gold);border-bottom:1.5px solid var(--gold);
+    transform:rotate(45deg);transition:transform .25s;vertical-align:2px;
+  }
+  .pessoas-btn.open .pb-chev{transform:rotate(-135deg);vertical-align:-2px;}
+  .pessoas-list{
+    background:var(--white-marble);border:1px solid var(--line);border-radius:2px;
+    margin-top:10px;padding:6px 0;display:none;text-align:left;
+  }
+  .pessoas-list.open{display:block;}
+  .pessoa-row{
+    display:flex;align-items:center;gap:10px;padding:10px 18px;
+    border-bottom:1px solid var(--line);font-size:14px;
+  }
+  .pessoa-row:last-child{border-bottom:none;}
+  .pessoa-row::before{
+    content:'';width:6px;height:6px;border-radius:50%;
+    background:var(--gold-soft);flex-shrink:0;
+  }
+
   /* Drill-down financeiro */
   .drill{max-width:920px;margin:10px auto 0;padding:0 16px;display:none;}
   .drill.open{display:block;}
@@ -290,6 +318,7 @@
     </div>
     <div class="tabs-wrap"><div class="tabs" id="tabsRow"></div></div>
     <div class="evento-meta" id="eventoMeta"></div>
+    <div class="pessoas-wrap" id="pessoasWrap"></div>
   </header>
 
   <section class="ledger">
@@ -307,7 +336,7 @@
         <div class="l-value" id="totalPending">R$ 0,00</div>
       </div>
     </div>
-    <div class="ledger-hint">Total geral de todos os eventos · toque para detalhar</div>
+    <div class="ledger-hint" id="ledgerHint">Total do evento · toque para ver todos os eventos</div>
   </section>
 
   <section class="drill" id="drillPanel"><div class="drill-box" id="drillBox"></div></section>
@@ -691,9 +720,44 @@ document.querySelectorAll('.modal-overlay').forEach(ov=>{
 /* ===== Render principal ===== */
 function renderAll(){
   renderTabs();
+  renderPessoas();
   renderLedger();
   renderDrill();
   renderChapters();
+}
+
+let pessoasOpen = false;
+
+function clientesDoEvento(ev){
+  const vistos = {};
+  const lista = [];
+  (ev.prestadoras||[]).forEach(p=>{
+    (p.clientes||[]).forEach(c=>{
+      const chave = (c.nome||'').trim().toLowerCase();
+      if(chave && !vistos[chave]){ vistos[chave]=true; lista.push(c.nome.trim()); }
+    });
+  });
+  return lista.sort((a,b)=>a.localeCompare(b,'pt-BR'));
+}
+
+function togglePessoas(){
+  pessoasOpen = !pessoasOpen;
+  renderPessoas();
+}
+
+function renderPessoas(){
+  const wrap = document.getElementById('pessoasWrap');
+  const ev = currentEvento();
+  if(!ev){ wrap.innerHTML=''; return; }
+  const lista = clientesDoEvento(ev);
+  if(!lista.length){ wrap.innerHTML=''; pessoasOpen=false; return; }
+  const label = lista.length + (lista.length===1 ? ' pessoa neste evento' : ' pessoas neste evento');
+  let html = '<button class="pessoas-btn'+(pessoasOpen?' open':'')+'" onclick="togglePessoas()">'
+    + label + '<span class="pb-chev"></span></button>'
+    + '<div class="pessoas-list'+(pessoasOpen?' open':'')+'">'
+    + lista.map(n=>'<div class="pessoa-row">'+esc(n)+'</div>').join('')
+    + '</div>';
+  wrap.innerHTML = html;
 }
 
 function currentEvento(){
@@ -722,15 +786,19 @@ function renderTabs(){
 function switchEvento(id){
   currentEventoId = id;
   openPrest = {};
+  pessoasOpen = false;
   renderAll();
 }
 
 /* ===== Ledger + drill ===== */
 function renderLedger(){
-  const t = totalsGeral();
+  const ev = currentEvento();
+  const t = ev ? totalsEvento(ev) : {orc:0,pago:0,pend:0};
   document.getElementById('totalBudget').textContent = fmt(t.orc);
   document.getElementById('totalPaid').textContent = fmt(t.pago);
   document.getElementById('totalPending').textContent = fmt(t.pend);
+  const hint = document.getElementById('ledgerHint');
+  if(hint) hint.textContent = ev ? ('Total do evento "'+ev.nome+'" · toque para ver todos os eventos') : 'Crie um evento para começar';
 }
 function toggleDrill(){
   drillOpen = !drillOpen;
